@@ -2,10 +2,10 @@
 
 Briefly, this is a proof of concept and tentative implementation of `Live View` feature.
 
-## Dicrectory structure
-- Android 
+## Directory structure
+- Android  
   This directory contains implementation of client side POC in Java ( Android Studio Project ).
-- Raspberry Pi
+- Raspberry Pi  
   This directory contains implementation of server side POC in python.
 
 ## Components
