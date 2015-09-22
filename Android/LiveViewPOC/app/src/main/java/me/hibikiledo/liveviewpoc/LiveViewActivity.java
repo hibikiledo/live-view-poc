@@ -22,6 +22,8 @@ public class LiveViewActivity extends ActionBarActivity {
     private ImageView imageView;
     private Bitmap imageData;
 
+    private LiveViewUpdaterSocket updater;
+
     /*
         Handler for UI thread
             This allows LiveViewUpdater to set new imageData and trigger update
@@ -38,13 +40,10 @@ public class LiveViewActivity extends ActionBarActivity {
         handler = new Handler(new Handler.Callback() {
             @Override
             public boolean handleMessage(Message msg) {
-
                 int msgType = msg.getData().getInt(MSG);
-
                 if( msgType == LIVEVIEW_MSG ) {
                     imageView.setImageBitmap( imageData );
                 }
-
                 return false;
             }
         });
@@ -53,8 +52,7 @@ public class LiveViewActivity extends ActionBarActivity {
         imageView = (ImageView) findViewById(R.id.liveview);
 
         // Creating new thread for refreshing ImageView
-        LiveViewUpdaterSocket updater = new LiveViewUpdaterSocket(this);
-        //LiveViewUpdater updater = new LiveViewUpdater(this);
+        updater = new LiveViewUpdaterSocket(this);
         updater.start();
 
     }
@@ -64,6 +62,23 @@ public class LiveViewActivity extends ActionBarActivity {
         // Inflate the menu; this adds items to the action bar if it is present.
         getMenuInflater().inflate(R.menu.menu_live_view, menu);
         return true;
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        Log.d(TAG, "onPause called. Stopping updater thread ..");
+        updater.kill();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        Log.d(TAG, "onResume called. Starting updater thread if none exist ..");
+        if( ! updater.isAlive() ) {
+            updater = new LiveViewUpdaterSocket(this);
+            updater.start();
+        }
     }
 
     @Override

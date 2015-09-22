@@ -5,8 +5,6 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.os.Bundle;
 import android.os.Message;
-import android.os.Parcel;
-import android.os.Parcelable;
 import android.os.Process;
 import android.util.Log;
 
@@ -14,56 +12,79 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.MalformedURLException;
 import java.net.Socket;
-import java.net.URL;
 
 public class LiveViewUpdaterSocket extends Thread {
 
     private Context context;
     private boolean failed = false;
-
-    // reusable bitmap object to solve GC blocking problem
-    private static Bitmap inBitmap = null;
+    private boolean killed = false;
 
     // IP and PORT of the server
-    final private static String IP = "192.168.1.15";
-    final private static int PORT = 5000;
-    // refresh rate in ms
-    final private static int refreshRate = 0;
+    final private static String IP = "10.0.2.1";
+    final private static int PORT = 1234;
+
+    // Thread sleep time between each request
+    final private static int refreshRate = 5;
+
+    // Create option object for decoder
+    final BitmapFactory.Options options = new BitmapFactory.Options();
+
+    // inBitmap and buffer is used for caching and performance improvement
+    private static Bitmap inBitmap = null;
+    private static byte[] buffer = new byte[16 * 1024];
 
     public LiveViewUpdaterSocket(Context context) {
+        this.setName("Bitmap Updater");
         this.context = context;
+
+        // inBitmap works with mutable only
+        options.inMutable = true;
+        // assign buffer to avoid reallocating 16K buffer
+        options.inTempStorage = buffer;
     }
 
     @Override
     public void run() {
 
         // Set priority
-        Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND);
+        Process.setThreadPriority(Process.THREAD_PRIORITY_LOWEST);
 
-        // Create option object for decoder
-        final BitmapFactory.Options options = new BitmapFactory.Options();
-        // inBitmap works with mutable only
-        options.inMutable = true;
 
         Log.d(LiveViewActivity.TAG, "LiveViewUpdaterSocket started.");
 
-        while( !failed ) {
+        while( !failed && !killed ) {
 
-            // if there is bitmap object, reuse it via options.inBitmap
+            /*
+                Reassign inBitmap field with the previous decoded Bitmap.
+                According to the doc, decodeStream will reuse our Bitmap object.
+
+                // Note // Reading the source code confirmed this already.
+             */
             if( inBitmap != null ) {
                 options.inBitmap = inBitmap;
             }
 
-            // Read bitmap from URL
-
+            /*
+                Scope stuffs .. it has to be here That's it !
+             */
             InputStream is = null;
             Socket socket = null;
 
+            /*
+                Get new Bitmap data from input stream.
+                This requires us to allocate Socket for every request.
+
+                We use decodeStream with Bitmap.Options so that we can
+                reuse buffer and also Bitmap.
+             */
             try {
+
                 socket = new Socket(IP, PORT);
                 is = socket.getInputStream();
 
+                // Decode bitmap from stream
                 inBitmap = BitmapFactory.decodeStream(is, null, options);
+
             } catch( MalformedURLException e ) {
 
                 Log.d(LiveViewActivity.TAG, e.getMessage());
@@ -91,23 +112,34 @@ public class LiveViewUpdaterSocket extends Thread {
 
             }
 
-            // Send message to UI thread
+            /*
+                Send new Bitmap from stream via handler on UI Thread
+                via a Message and Bundle.
+             */
             if( inBitmap != null ) {
                 // Create bundle and message
                 Message msg = Message.obtain();
                 Bundle bundle = new Bundle();
                 bundle.putInt(LiveViewActivity.MSG, LiveViewActivity.LIVEVIEW_MSG);
                 msg.setData(bundle);
+
                 // send message to main thread's handler
                 ((LiveViewActivity) context).setLiveViewData(inBitmap);
                 ((LiveViewActivity) context).getHandler().sendMessage(msg);
             }
 
-            // For fine adjustment between performance and smoothness of LiveView
+            /*
+                Let's thread wait and do nothing for value in ms
+                specified in refreshRate. This allows us to adjust thread not
+                to be too aggressive consuming all the cpu time.
+             */
             try {
-                Thread.sleep(refreshRate, 0);
+                // If it's killed, no need to sleep, let it die fast.
+                if(!killed) {
+                    Thread.sleep(refreshRate, 0);
+                }
             } catch (InterruptedException e) {
-                Log.d(LiveViewActivity.TAG, e.getMessage());
+                e.printStackTrace();
             }
 
         }
@@ -115,4 +147,9 @@ public class LiveViewUpdaterSocket extends Thread {
         Log.d(LiveViewActivity.TAG, "LiveViewUpdaterSocket stopped.");
 
     }
+
+    public void kill() {
+        this.killed = true;
+    }
+
 }
